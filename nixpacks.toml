@@ -1,0 +1,11 @@
+[build]
+nixpacksVersion = "1.0.0"
+
+[phases.setup]
+nixPkgs = ["python312", "ffmpeg"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python3.12 main.py"
