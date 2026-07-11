@@ -1,0 +1,6 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+chat.deepseek.com	FALSE	/	TRUE	0	ds_session_id	6e6368cba036411387b90c87cc3f396b
+.deepseek.com	TRUE	/	TRUE	1784118174	aws-waf-token	fa02852f-b69c-40de-ba65-17f3894dc7e7:BQoAsOlB6eMAAAAA:44mwiD8z1UXLTk+sTRdUVjTt/x4Zx2AVSSLCQI+ef3x9ZawGNu4JVk8eyKxwQySupnscSApyPJ1bI/KJp7l6YMIMlYeZ+vDYYJY0Pza7qUXV2s3yJphXOGlnXO+3Ly7YjnWk7MxfdM6TiSjAXeoVdYJeFZtDMFL4Uvmj0i4RiQSYvT0dOMvDAbFiFejKclM=
