@@ -6,20 +6,39 @@ import asyncio
 import os
 import logging
 import random
-import re
 from collections import deque
-from urllib.parse import urlparse, parse_qs
 
-# ============ إعدادات ============
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ============ إعدادات التسجيل ============
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger('MusicBot')
 
-TOKEN = os.environ.get('TOKEN')
+# ============ قراءة التوكن من عدة مصادر ============
+TOKEN = (
+    os.environ.get('TOKEN') or
+    os.environ.get('DISCORD_TOKEN') or
+    os.environ.get('BOT_TOKEN') or
+    os.environ.get('DISCORD_BOT_TOKEN') or
+    os.environ.get('token') or
+    os.environ.get('discord_token')
+)
+
+# عرض جميع المتغيرات البيئية المتاحة (للتشخيص)
+logger.info("📋 المتغيرات البيئية المتاحة:")
+for key in os.environ.keys():
+    if 'token' in key.lower() or 'discord' in key.lower():
+        logger.info(f"   - {key} = {'*' * 10} (موجود)")
+
 if not TOKEN:
-    logger.error("❌ التوكن غير موجود! أضف TOKEN في Variables")
+    logger.error("❌ لم يتم العثور على التوكن!")
+    logger.error("📌 تأكد من إضافة متغير TOKEN في Railway Variables")
+    logger.error("📌 اذهب إلى: مشروعك → Variables → أضف متغيراً باسم TOKEN")
     exit(1)
 
 PREFIX = os.environ.get('PREFIX', '!')
+logger.info(f"✅ تم العثور على التوكن بنجاح | البادئة: {PREFIX}")
 
 # ============ البوت ============
 intents = discord.Intents.all()
@@ -36,18 +55,11 @@ ydl_opts = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'geo_bypass': True,
-    'extract_flat': False,
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'opus',
-        'preferredquality': '192',
-    }],
 }
 
-# إعدادات FFmpeg للجودة العالية
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -analyzeduration 0 -loglevel panic',
-    'options': '-vn -b:a 192k -af "volume=1.0"'
+    'options': '-vn -b:a 192k'
 }
 
 # ============ هيكل البيانات ============
@@ -59,30 +71,30 @@ class ServerData:
         self.current = None
         self.voice_client = None
         self.is_playing = False
-        self.is_paused = False
         self.volume = 0.5
         self.loop = False
         self.loop_queue = False
         self.history = deque(maxlen=50)
-        self.auto_play = True
-        self.bass_boost = False
-        self.echo = False
-        self.current_effect = 'none'
 
-# ============ سجل الأوامر ============
-class MusicBot(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-
-    @commands.Cog.listener()
-    async def on_ready(self):
+# ============ تسجيل الأوامر ============
+@bot.event
+async def on_ready():
+    try:
         await bot.tree.sync()
-        logger.info(f'✅ البوت جاهز: {bot.user.name}')
-        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f"{PREFIX}play"))
+        logger.info("✅ تم تسجيل الأوامر Slash")
+    except Exception as e:
+        logger.error(f"خطأ في التسجيل: {e}")
+
+    await bot.change_presence(activity=discord.Activity(
+        type=discord.ActivityType.listening,
+        name=f"{PREFIX}play | {len(bot.guilds)} سيرفر"
+    ))
+    logger.info(f'✅ البوت جاهز: {bot.user.name} (ID: {bot.user.id})')
+    logger.info(f'📊 متصل بـ {len(bot.guilds)} سيرفر')
 
 # ============ أوامر Slash ============
 
-@bot.tree.command(name="play", description="تشغيل أغنية من يوتيوب أو سبوتيفاي")
+@bot.tree.command(name="play", description="تشغيل أغنية من يوتيوب")
 @app_commands.describe(query="اسم الأغنية أو الرابط")
 async def slash_play(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
@@ -145,7 +157,7 @@ async def slash_clear(interaction: discord.Interaction):
     await clear_command(interaction)
 
 @bot.tree.command(name="remove", description="حذف أغنية من القائمة")
-@app_commands.describe(index="رقم الأغنية في القائمة")
+@app_commands.describe(index="رقم الأغنية")
 async def slash_remove(interaction: discord.Interaction, index: int):
     await interaction.response.defer()
     await remove_command(interaction, index)
@@ -154,11 +166,6 @@ async def slash_remove(interaction: discord.Interaction, index: int):
 async def slash_history(interaction: discord.Interaction):
     await interaction.response.defer()
     await history_command(interaction)
-
-@bot.tree.command(name="bassboost", description="تفعيل/تعطيل تحسين الجهير")
-async def slash_bass(interaction: discord.Interaction):
-    await interaction.response.defer()
-    await bass_command(interaction)
 
 @bot.tree.command(name="ping", description="سرعة الاستجابة")
 async def slash_ping(interaction: discord.Interaction):
@@ -170,40 +177,29 @@ async def slash_help(interaction: discord.Interaction):
     await interaction.response.defer()
     await help_command(interaction)
 
-@bot.tree.command(name="move", description="نقل الأغنية في القائمة")
-@app_commands.describe(from_index="الرقم الحالي", to_index="الرقم الجديد")
-async def slash_move(interaction: discord.Interaction, from_index: int, to_index: int):
-    await interaction.response.defer()
-    await move_command(interaction, from_index, to_index)
-
 # ============ وظائف الأوامر ============
 
 async def play_command(ctx_or_interaction, query):
-    """تشغيل الأغنية"""
     if isinstance(ctx_or_interaction, discord.Interaction):
-        ctx = await bot.get_context(ctx_or_interaction)
-        author = ctx_or_interaction.user
-        channel = ctx_or_interaction.user.voice.channel if ctx_or_interaction.user.voice else None
+        user = ctx_or_interaction.user
+        guild = ctx_or_interaction.guild
         respond = ctx_or_interaction.followup.send
     else:
-        ctx = ctx_or_interaction
-        author = ctx.author
-        channel = ctx.author.voice.channel if ctx.author.voice else None
-        respond = ctx.send
+        user = ctx_or_interaction.author
+        guild = ctx_or_interaction.guild
+        respond = ctx_or_interaction.send
 
-    if not channel:
+    if not user.voice:
         return await respond("⚠️ يجب أن تكون في روم صوتي!")
 
-    # تهيئة بيانات السيرفر
-    if ctx.guild.id not in servers_data:
-        servers_data[ctx.guild.id] = ServerData()
+    if guild.id not in servers_data:
+        servers_data[guild.id] = ServerData()
 
-    server = servers_data[ctx.guild.id]
+    server = servers_data[guild.id]
 
-    # الانضمام للروم
     if not server.voice_client or not server.voice_client.is_connected():
         try:
-            server.voice_client = await channel.connect()
+            server.voice_client = await user.voice.channel.connect()
         except Exception as e:
             return await respond(f"❌ فشل الانضمام: {str(e)[:100]}")
 
@@ -223,8 +219,6 @@ async def play_command(ctx_or_interaction, query):
                             'duration': entry.get('duration', 0),
                             'uploader': entry.get('uploader', 'Unknown'),
                             'thumbnail': entry.get('thumbnail', ''),
-                            'view_count': entry.get('view_count', 0),
-                            'like_count': entry.get('like_count', 0),
                         })
             else:
                 songs.append({
@@ -233,8 +227,6 @@ async def play_command(ctx_or_interaction, query):
                     'duration': info.get('duration', 0),
                     'uploader': info.get('uploader', 'Unknown'),
                     'thumbnail': info.get('thumbnail', ''),
-                    'view_count': info.get('view_count', 0),
-                    'like_count': info.get('like_count', 0),
                 })
 
             if not songs:
@@ -245,24 +237,26 @@ async def play_command(ctx_or_interaction, query):
                 server.history.append(song)
 
             if not server.is_playing:
-                await play_next(ctx.guild.id)
-                await msg.edit(content=f"🎵 **بدأ التشغيل:** {songs[0]['title']} [{format_duration(songs[0]['duration'])}]")
+                await play_next(guild.id)
+                await msg.edit(content=f"🎵 **بدأ التشغيل:** {songs[0]['title']}")
             else:
-                await msg.edit(content=f"✅ **تمت الإضافة:** {songs[0]['title']} [{format_duration(songs[0]['duration'])}]\n📊 القائمة: {len(server.queue)} أغانٍ")
+                await msg.edit(content=f"✅ **تمت الإضافة:** {songs[0]['title']}\n📊 القائمة: {len(server.queue)} أغانٍ")
 
     except Exception as e:
         logger.error(f"خطأ: {e}")
         await msg.edit(content=f"❌ خطأ: {str(e)[:200]}")
 
 async def skip_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or not server.is_playing:
         return await respond(ctx_or_interaction, "❌ لا توجد أغنية!")
     server.voice_client.stop()
     await respond(ctx_or_interaction, "⏭️ تم التخطي")
 
 async def stop_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server:
         return await respond(ctx_or_interaction, "❌ البوت غير متصل!")
     server.queue.clear()
@@ -270,28 +264,27 @@ async def stop_command(ctx_or_interaction):
     server.current = None
     if server.voice_client:
         await server.voice_client.disconnect()
-    servers_data.pop(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id, None)
+    servers_data.pop(guild.id, None)
     await respond(ctx_or_interaction, "⏹️ تم الإيقاف")
 
 async def queue_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or not server.queue:
         return await respond(ctx_or_interaction, "📭 القائمة فارغة")
-
     text = f"**📋 قائمة الانتظار ({len(server.queue)}):**\n"
     for i, s in enumerate(server.queue, 1):
-        dur = format_duration(s.get('duration', 0))
-        text += f"`{i:2d}.` {s['title'][:40]} `[{dur}]`\n"
+        text += f"`{i}.` {s['title'][:50]}\n"
         if len(text) > 1800:
-            text += f"\n... و {len(server.queue) - i} أغانٍ أخرى"
+            text += f"... و {len(server.queue) - i} أغانٍ أخرى"
             break
     await respond(ctx_or_interaction, text)
 
 async def now_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or not server.current:
         return await respond(ctx_or_interaction, "❌ لا توجد أغنية!")
-
     song = server.current
     embed = discord.Embed(title="🎵 الآن يعمل", description=f"**{song['title']}**", color=0x00ff00)
     embed.add_field(name="🎤 المقدم", value=song.get('uploader', 'Unknown'), inline=True)
@@ -301,19 +294,22 @@ async def now_command(ctx_or_interaction):
     await respond(ctx_or_interaction, embed=embed)
 
 async def pause_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if server and server.voice_client and server.voice_client.is_playing():
         server.voice_client.pause()
         await respond(ctx_or_interaction, "⏸️ توقف مؤقت")
 
 async def resume_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if server and server.voice_client and server.voice_client.is_paused():
         server.voice_client.resume()
         await respond(ctx_or_interaction, "▶️ استئناف")
 
 async def volume_command(ctx_or_interaction, level):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server:
         return await respond(ctx_or_interaction, "❌ البوت غير متصل!")
     if not 0 <= level <= 200:
@@ -324,21 +320,24 @@ async def volume_command(ctx_or_interaction, level):
     await respond(ctx_or_interaction, f"🔊 الصوت: {level}%")
 
 async def loop_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server:
         return await respond(ctx_or_interaction, "❌ لا توجد أغنية!")
     server.loop = not server.loop
     await respond(ctx_or_interaction, f"🔄 تكرار: {'مفعل' if server.loop else 'معطل'}")
 
 async def loopqueue_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server:
         return await respond(ctx_or_interaction, "❌ البوت غير متصل!")
     server.loop_queue = not server.loop_queue
     await respond(ctx_or_interaction, f"🔄 تكرار القائمة: {'مفعل' if server.loop_queue else 'معطل'}")
 
 async def shuffle_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or len(server.queue) < 2:
         return await respond(ctx_or_interaction, "❌ ما يكفي للخلط!")
     q = list(server.queue)
@@ -347,13 +346,15 @@ async def shuffle_command(ctx_or_interaction):
     await respond(ctx_or_interaction, "🔀 تم الخلط")
 
 async def clear_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if server and server.queue:
         server.queue.clear()
         await respond(ctx_or_interaction, "🧹 مسحت القائمة")
 
 async def remove_command(ctx_or_interaction, index):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or not server.queue:
         return await respond(ctx_or_interaction, "❌ القائمة فارغة!")
     if 1 <= index <= len(server.queue):
@@ -362,7 +363,8 @@ async def remove_command(ctx_or_interaction, index):
         await respond(ctx_or_interaction, f"🗑️ حذفت: {removed['title']}")
 
 async def history_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
+    guild = ctx_or_interaction.guild if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild
+    server = servers_data.get(guild.id)
     if not server or not server.history:
         return await respond(ctx_or_interaction, "📭 السجل فارغ")
     text = "**📜 سجل التشغيل:**\n"
@@ -371,13 +373,6 @@ async def history_command(ctx_or_interaction):
         if len(text) > 1800:
             break
     await respond(ctx_or_interaction, text)
-
-async def bass_command(ctx_or_interaction):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
-    if not server:
-        return await respond(ctx_or_interaction, "❌ البوت غير متصل!")
-    server.bass_boost = not server.bass_boost
-    await respond(ctx_or_interaction, f"🎵 جهير: {'مفعل' if server.bass_boost else 'معطل'}")
 
 async def ping_command(ctx_or_interaction):
     latency = round(bot.latency * 1000)
@@ -398,32 +393,22 @@ async def help_command(ctx_or_interaction):
         "/loopqueue": "تكرار القائمة",
         "/shuffle": "خلط القائمة",
         "/clear": "مسح القائمة",
-        "/remove": "حذف أغنية من القائمة",
+        "/remove": "حذف أغنية",
         "/history": "سجل التشغيل",
-        "/bassboost": "تفعيل/تعطيل الجهير",
-        "/move": "نقل أغنية في القائمة",
         "/ping": "سرعة الاستجابة"
     }
     for cmd, desc in cmds.items():
         embed.add_field(name=cmd, value=desc, inline=True)
     await respond(ctx_or_interaction, embed=embed)
 
-async def move_command(ctx_or_interaction, from_idx, to_idx):
-    server = servers_data.get(ctx_or_interaction.guild.id if hasattr(ctx_or_interaction, 'guild') else ctx_or_interaction.guild.id)
-    if not server or not server.queue:
-        return await respond(ctx_or_interaction, "❌ القائمة فارغة!")
-    q = list(server.queue)
-    if 1 <= from_idx <= len(q) and 1 <= to_idx <= len(q):
-        song = q.pop(from_idx - 1)
-        q.insert(to_idx - 1, song)
-        server.queue = deque(q)
-        await respond(ctx_or_interaction, f"✅ نُقلت: {song['title']}")
-
-# ============ وظيفة المساعدة ============
 async def respond(ctx_or_interaction, content):
     if isinstance(ctx_or_interaction, discord.Interaction):
+        if isinstance(content, discord.Embed):
+            return await ctx_or_interaction.followup.send(embed=content)
         return await ctx_or_interaction.followup.send(content)
     else:
+        if isinstance(content, discord.Embed):
+            return await ctx_or_interaction.send(embed=content)
         return await ctx_or_interaction.send(content)
 
 # ============ أوامر البادئة ============
@@ -484,10 +469,6 @@ async def prefix_remove(ctx, index: int):
 async def prefix_history(ctx):
     await history_command(ctx)
 
-@bot.command(name='bassboost', aliases=['bass'])
-async def prefix_bass(ctx):
-    await bass_command(ctx)
-
 @bot.command(name='ping')
 async def prefix_ping(ctx):
     await ping_command(ctx)
@@ -495,10 +476,6 @@ async def prefix_ping(ctx):
 @bot.command(name='help')
 async def prefix_help(ctx):
     await help_command(ctx)
-
-@bot.command(name='move')
-async def prefix_move(ctx, from_idx: int, to_idx: int):
-    await move_command(ctx, from_idx, to_idx)
 
 # ============ وظائف التشغيل ============
 
@@ -529,29 +506,19 @@ async def play_next(guild_id):
             info = ydl.extract_info(song['url'], download=False)
             audio_url = info['url']
 
-        # تأثيرات الصوت
-        effects = []
-        if server.bass_boost:
-            effects.append('bass=g=15,f=110,w=0.3')
-        if server.echo:
-            effects.append('aecho=0.8:0.88:60:0.4')
-
-        filter_chain = ','.join(effects) if effects else 'volume={}'.format(server.volume)
-
         source = FFmpegOpusAudio(
             audio_url,
             before_options=FFMPEG_OPTIONS['before_options'],
-            options=f'-vn -b:a 192k -af "{filter_chain}"'
+            options=f'-vn -b:a 192k -af "volume={server.volume}"'
         )
 
-        def after_callback(error):
-            asyncio.run_coroutine_threadsafe(handle_after(guild_id, error), bot.loop)
-
-        server.voice_client.play(source, after=after_callback)
+        server.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(handle_after(guild_id, e), bot.loop))
         server.is_playing = True
 
-        # تحديث حالة البوت
-        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f"{song['title'][:30]}"))
+        await bot.change_presence(activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name=f"{song['title'][:30]}"
+        ))
 
         logger.info(f'🎵 تشغيل: {song["title"]}')
 
@@ -584,19 +551,11 @@ def format_duration(seconds):
 
 # ============ التشغيل ============
 
-@bot.event
-async def on_ready():
-    try:
-        await bot.tree.sync()
-        logger.info("✅ تم تسجيل الأوامر")
-    except Exception as e:
-        logger.error(f"خطأ في تسجيل الأوامر: {e}")
-
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f"{PREFIX}play"))
-    logger.info(f'✅ البوت جاهز: {bot.user.name}')
-
 if __name__ == "__main__":
     try:
+        logger.info("🚀 جاري تشغيل البوت...")
         bot.run(TOKEN)
+    except discord.LoginFailure:
+        logger.error("❌ التوكن غير صحيح! تأكد من المتغير TOKEN")
     except Exception as e:
-        logger.error(f"فشل التشغيل: {e}")
+        logger.error(f"❌ خطأ: {e}")
