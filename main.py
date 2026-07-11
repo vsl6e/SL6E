@@ -33,6 +33,7 @@ ydl_opts = {
     'restrictfilenames': True,
     'noplaylist': False,
     'default_search': 'ytsearch',
+    'cookiefile': 'cookies.txt',
     'source_address': '0.0.0.0',
     'geo_bypass': True,
 }
