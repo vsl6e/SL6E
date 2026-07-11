@@ -671,6 +671,19 @@ def format_duration(seconds):
     if hrs:
         return f"{hrs}:{mins:02d}:{secs:02d}"
     return f"{mins}:{secs:02d}"
+    
+ydl_opts = {
+    'format': 'bestaudio/best',
+    'quiet': True,
+    'no_warnings': True,
+    'extractaudio': True,
+    'restrictfilenames': True,
+    'noplaylist': False,
+    'default_search': 'ytsearch',
+    'source_address': '0.0.0.0',
+    'geo_bypass': True,
+    'cookiefile': 'cookies.txt',  # <--- أضف هذا السطر
+}
 
 # ============ التشغيل ============
 
